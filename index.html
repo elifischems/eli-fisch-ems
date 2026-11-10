@@ -269,6 +269,7 @@ function xc(b,d){
  if(d.sauce1){if(isClosed()){toast("Tag abgeschlossen – keine Buchung möglich");return true}var sx=doSale(P(d.sauce1),0,UI.loc);toast(sx.name+" · "+eur(sx.rev),sx.id);openSauce();save();return true}
  if(d.soff){var sp=P(d.soff);sp.off=!sp.off;openSauce();save();return true}
  if(d.mogo){if(isClosed()){toast("Tag abgeschlossen");return true}if(goOther()){$("modal").style.display="none";$("modal").innerHTML="";render()}return true}
+ if(d.pdf=="month"){try{var ymm=UI.bm||dk().slice(0,7);savePdf(pdfMonth(ymm),"Monatsunterlagen_"+ymm+".pdf")}catch(e){toast("PDF-Fehler: "+e.message)}return true}
  if(d.sync){sync(true);return true}
  if(d.login){openLogin();return true}
  if(d.dologin){doLogin();return true}
@@ -287,6 +288,7 @@ function xc(b,d){
  return false}
 function xch(t,d){
  if(d.bd){UI.bd=t.value||dk();render();return true}
+ if(d.bm){UI.bm=t.value||dk().slice(0,7);render();return true}
  if(d.rv){UI.rv[d.rv]=t.value;return true}
  if(d.rvi!=null){var it=UI.rv.items[+d.rvi];it[d.rvf]=(d.rvf=="qty"||d.rvf=="price")?num(t.value):t.value;return true}
  if(d.invpay){setPay(d.invpay,t.value);render();return true}
@@ -430,9 +432,76 @@ function pgBeleg(P1,I,e){var p=P1.page(),y=hdr(p,"AUSGABENBELEGE","AUSGABENBELEG
  var im=e.thumb?jpgInfo(e.thumb):null;if(im){var s=Math.min((CW-12)/im.w,(bh-12)/im.h),iw=im.w*s,ih=im.h*s;p.image(im,MG+(CW-iw)/2,y+(bh-ih)/2,iw,ih)}else p.text(MG+CW/2,y+bh/2,"Originalbeleg hier aufkleben / einlegen",{size:9,align:"c",color:GRY});return p}
 function pdfDay(d,loc){var I=dayInfo(d,loc),P1={pages:[],page:function(){var p=new PdfPage();this.pages.push(p);return p}};pgTag(P1,I);pgKasse(P1,I);pgStueck(P1,I);pgAusg(P1,I);I.ex.forEach(function(e){pgBeleg(P1,I,e)});
  P1.pages.forEach(function(p,i){foot(p,i+1)});return pdfBuild(P1.pages)}
+var MN=["Januar","Februar","März","April","Mai","Juni","Juli","August","September","Oktober","November","Dezember"],BASEM="2026-10";
+var KS={t:"Bar",pe:"Privat erstattet",pn:"Privat n. erstattet",b:"Bank"};
+function mName(ym){var a=ym.split("-");return MN[+a[1]-1]+" "+a[0]}
+function inM(d,ym){return String(d||"").slice(0,7)==ym}
+function tr(s,w,sz,f){s=String(s==null?"":s);if(tw(s,sz,f||1)<=w)return s;while(s.length>1&&tw(s+"…",sz,f||1)>w)s=s.slice(0,-1);return s+"…"}
+function dvOf(d,l){var D=S.days[d+"|"+l];return(D&&D.v)||{}}
+function nv(v,k){return num(v[k])}
+function bSold(d,l){var n=0;S.sales.forEach(function(s){if(s.date==d&&s.loc==l)s.cons.forEach(function(r){if(r[0]=="broetchen")n+=r[1]})});return n}
+function mDays(ym){var m={};function add(d,l){if(inM(d,ym))m[d+"|"+l]=[d,l]}
+ S.sales.forEach(function(s){add(s.date,s.loc)});S.exp.forEach(function(e){add(e.date,e.loc)});
+ Object.keys(S.days).forEach(function(k){var a=k.split("|"),v=S.days[k].v||{},any=false;Object.keys(v).forEach(function(f){if(v[f]!==""&&v[f]!=null&&num(v[f])!==0)any=true});if(any)add(a[0],a[1])});
+ return Object.keys(m).sort().map(function(k){return m[k]})}
+function pgTable(P1,sub,title,lab,cols,rows,tot,note,sig){
+ var rh=15.5,lim=PH-72,i=0,first=true,totH=(tot?tot.length*18+16:0)+(note?30:0)+(sig?70:0);
+ while(first||i<rows.length){first=false;
+  var p=P1.page(),y=hdr(p,sub,title);p.text(MG,y+12,lab,{size:9.5,color:DK});y+=34;tblHead(p,y,cols);y+=19;
+  var cap=Math.floor((lim-y)/rh),chunk=rows.slice(i,i+cap);i+=chunk.length;
+  if(i>=rows.length)while(chunk.length<10)chunk.push([]);
+  y=tblRows(p,y,cols,chunk,rh)+16;
+  if(i>=rows.length){
+   if(lim-y<totH&&totH>0){p=P1.page();y=hdr(p,sub,title);p.text(MG,y+12,lab+" (Summen)",{size:9.5,color:DK});y+=34}
+   (tot||[]).forEach(function(r){sumLine(p,y,r[0],r[1],r[2]);y+=18});
+   if(note){y+=6;p.text(MG,y,note,{size:7.5,color:GRY});y+=16}
+   if(sig)sigBlock(p,y+14,"")}}}
+function mOverview(P1,ym){var rows=[],tU=0,tA=0,tP=0,tN=0,lu={},tD=0,hasD=false;
+ mDays(ym).forEach(function(a){var d=a[0],l=a[1],v=dvOf(d,l),sl=S.sales.filter(function(s){return s.date==d&&s.loc==l}),rev=sl.reduce(function(x,s){return x+s.rev},0),
+  tk=S.exp.filter(function(e){return e.date==d&&e.loc==l&&e.kind=="t"}).reduce(function(x,e){return x+e.amt},0),pr=nv(v,"priv"),soll=nv(v,"wg")+nv(v,"bar")-tk-pr,df=(v.gez!=null&&v.gez!=="")?nv(v,"gez")-soll:null;
+  tU+=rev;tA+=tk;tP+=pr;tN+=sl.length;lu[l]=(lu[l]||0)+rev;if(df!=null){tD+=df;hasD=true}
+  rows.push([fD(d),l,String(sl.length),fE(rev),fE(tk),fE(pr),df==null?"":fE(df)])});
+ var cols=[["Datum",62],["Ort",70],["Verk.",40,"c"],["Umsatz",80,"r"],["Barausgaben",80,"r"],["Privatentn.",80,"r"],["Kassendiff.",CW-412,"r"]];
+ var tot=[["Warenumsatz gesamt ("+tN+" Verkäufe)",fE(tU),1]];Object.keys(lu).sort().forEach(function(l){tot.push(["   davon "+l,fE(lu[l])])});
+ tot.push(["Barausgaben aus der Tageskasse",fE(tA)]);tot.push(["Privatentnahmen (bar)",fE(tP)]);if(hasD)tot.push(["Kassendifferenzen gesamt",fE(tD)]);
+ var ek={};S.exp.filter(function(e){return inM(e.date,ym)}).forEach(function(e){ek[e.kind]=(ek[e.kind]||0)+e.amt});
+ ["t","b","pe","pn"].forEach(function(k){if(ek[k])tot.push(["Ausgaben "+KS[k],fE(ek[k])])});
+ var op=S.inv.filter(function(i){return inM(i.date,ym)&&i.pay=="open"});if(op.length)tot.push(["Offene Rechnungen ("+op.length+")",fE(op.reduce(function(x,i){return x+i.total},0))]);
+ pgTable(P1,"MONATSBUCHHALTUNG","MONATSÜBERSICHT",mName(ym),cols,rows,tot,"Rechnerische Werte aus den App-Daten (erfasste Tasten und Belege).",1)}
+function mBelege(P1,ym){var ex=S.exp.filter(function(e){return inM(e.date,ym)}).sort(function(a,b){return a.date<b.date?-1:a.date>b.date?1:(a.no<b.no?-1:1)}),tot={},sum=0;
+ var cols=[["Beleg-Nr.",64],["Datum",56],["Ort",52],["Lieferant / Zweck",180],["Zahlungsart",70],["Betrag",CW-422,"r"]];
+ var rows=ex.map(function(e){tot[e.kind]=(tot[e.kind]||0)+e.amt;sum+=e.amt;return[e.no,fD(e.date),e.loc,tr(e.what,166,8.5),tr(KS[e.kind]||e.kind,58,8.5),fE(e.amt)]});
+ var t=[];["t","b","pe","pn"].forEach(function(k){if(tot[k])t.push([KS[k],fE(tot[k])])});t.push(["Belege gesamt ("+ex.length+")",fE(sum),1]);
+ pgTable(P1,"MONATSBUCHHALTUNG","BELEGREGISTER",mName(ym),cols,rows,t,"",1)}
+function mPrivat(P1,ym){var rows=[],tb=0,te=0,tn=0;
+ mDays(ym).forEach(function(a){var v=dvOf(a[0],a[1]),pr=nv(v,"priv");if(pr){tb+=pr;rows.push([fD(a[0]),a[1],"Bargeld-Entnahme aus der Kasse",fE(pr)])}});
+ S.exp.filter(function(e){return inM(e.date,ym)&&(e.kind=="pe"||e.kind=="pn")}).sort(function(a,b){return a.date<b.date?-1:1}).forEach(function(e){if(e.kind=="pe")te+=e.amt;else tn+=e.amt;rows.push([fD(e.date),e.loc,tr(e.what+" ("+KS[e.kind]+")",250,8.5),fE(e.amt)])});
+ var cols=[["Datum",62],["Ort",70],["Beschreibung",CW-232],["Betrag",100,"r"]];
+ pgTable(P1,"MONATSBUCHHALTUNG","PRIVATENTNAHMEN",mName(ym),cols,rows,[["Bargeld-Entnahmen",fE(tb)],["Privat bezahlte Ausgaben (erstattet)",fE(te)],["Privat bezahlte Ausgaben (nicht erstattet)",fE(tn)],["Summe",fE(tb+te+tn),1]],"Privat bezahlte, erstattete Ausgaben sind Auslagen und keine Entnahmen. Steuerliche Einordnung bitte mit dem Steuerberater klären.",1)}
+function mBroet(P1,ym){var rows=[],ti=0,ts=0,tp=0,te=0;
+ mDays(ym).forEach(function(a){var d=a[0],l=a[1],v=dvOf(d,l),ein=nv(v,"brin"),sold=bSold(d,l),pv=nv(v,"brpriv"),en=nv(v,"brent");if(!ein&&!sold&&!pv&&!en)return;
+  ti+=ein;ts+=sold;tp+=pv;te+=en;rows.push([fD(d),l,String(ein),String(sold),String(pv),String(en),String(ein-sold-pv-en),""])});
+ var cols=[["Datum",56],["Ort",62],["Einkauf",54,"r"],["Verkauf",54,"r"],["Privat",48,"r"],["Entsorgt",54,"r"],["Rest",48,"r"],["Nachweis",CW-376]];
+ pgTable(P1,"MONATSBUCHHALTUNG","BRÖTCHEN-INVENTUR",mName(ym),cols,rows,[["Eingekauft (Stück)",String(ti)],["Verkauft (Stück)",String(ts)],["Privat (Stück)",String(tp)],["Entsorgt (Stück)",String(te)],["Überschuss laut Rechnung (Stück)",String(ti-ts-tp-te),1]],"Brötchen werden täglich nach Bedarf gekauft. Zu viel gekaufte Brötchen stehen als Rest in dieser Liste.",1)}
+function ingBal(k,ym){var g=S.ing[k],b=g.base==null?g.stock:g.base,an=b,zu=0,ab=0;
+ S.deliv.forEach(function(x){if(x.i!=k)return;if(String(x.date).slice(0,7)<ym)an+=x.q;else if(inM(x.date,ym))zu+=x.q});
+ S.mov.forEach(function(x){if(x.i!=k)return;if(String(x.date).slice(0,7)<ym)an+=x.q;else if(inM(x.date,ym))ab-=x.q});
+ S.sales.forEach(function(s){var m=String(s.date).slice(0,7);s.cons.forEach(function(r){if(r[0]!=k)return;if(m<ym)an-=r[1];else if(m==ym)ab+=r[1]})});
+ return{an:an,zu:zu,ab:ab,en:an+zu-ab}}
+function mSup(P1,ym){var names=S.sup.slice(),none=[];Object.keys(S.ing).forEach(function(k){var g=S.ing[k];if(g.nt)return;if(!g.sup||names.indexOf(g.sup)<0)none.push(k)});
+ var cols=[["Artikel",139],["Anfang",68,"r"],["Zugang",68,"r"],["Verbrauch",68,"r"],["Ende (Soll)",68,"r"],["Ist (gezählt)",CW-411,"r"]];
+ function one(label,keys){if(!keys.length)return;keys.sort(function(a,b){return S.ing[a].name.localeCompare(S.ing[b].name,"de")});
+  var rows=keys.map(function(k){var g=S.ing[k];if(ym<=BASEM)return[tr(g.name,128,8.5),"","","",amt(g,g.base==null?g.stock:g.base),""];var b=ingBal(k,ym);return[tr(g.name,128,8.5),amt(g,b.an),b.zu?amt(g,b.zu):"–",b.ab?amt(g,b.ab):"–",amt(g,b.en),""]});
+  pgTable(P1,"MONATSINVENTUR","LIEFERANTEN-INVENTUR","Lieferant: "+label+"   ·   Monat: "+mName(ym),cols,rows,null,ym<=BASEM?"Bestand zum Monatsende = Übertrag in den Folgemonat. Ist-Spalte bei der Zählung ausfüllen.":"Soll = Anfang + Zugang − Verbrauch/Korrektur. Ist-Spalte bei der Zählung ausfüllen.",1)}
+ names.forEach(function(n){one(n,Object.keys(S.ing).filter(function(k){var g=S.ing[k];return!g.nt&&g.sup==n}))});one("Ohne Lieferant",none)}
+function pdfMonth(ym){var P1={pages:[],page:function(){var p=new PdfPage();this.pages.push(p);return p}};
+ mOverview(P1,ym);mBelege(P1,ym);mPrivat(P1,ym);mBroet(P1,ym);mSup(P1,ym);
+ P1.pages.forEach(function(p,i){foot(p,i+1,"Monatsunterlagen "+mName(ym))});return pdfBuild(P1.pages)}
 function vBuch(){var d=UI.bd||(UI.bd=dk()),I=dayInfo(d,UI.loc),cl=!!(I.D&&I.D.closed);
  var h=locChips()+'<h2>Tagesunterlagen</h2><div class="card"><div class="rowf"><input type="date" id="bu-d" data-bd="1" value="'+d+'"></div><table class="tbl"><tr><td>Warenumsatz (erfasste Tasten)</td><td class="r"><b>'+eur(I.calc)+'</b></td></tr><tr><td>Anfangsbestand / Wechselgeld</td><td class="r">'+eur(I.n("wg"))+'</td></tr><tr><td>Ausgaben aus der Tageskasse</td><td class="r">'+eur(I.tk)+'</td></tr><tr><td><b>Kassen-Soll nach Ausgaben</b></td><td class="r"><b>'+eur(I.calc+I.n("wg")-I.tk)+'</b></td></tr><tr><td>Ausgabenbelege</td><td class="r">'+I.ex.length+'</td></tr><tr><td>Status</td><td class="r">'+(cl?"abgeschlossen":"noch offen")+'</td></tr></table><p class="mute sm">Das PDF enthält: Tagesabrechnung, Kassenabschluss, Geldstückelung, Ausgabenübersicht und je einen Ausgabenbeleg mit Foto.</p><button class="btn" data-pdf="day">PDF erstellen und speichern / teilen</button></div>';
- return h+'<div class="warnbox">Rechnerische Unterlagen aus den App-Daten. Kassenwerte und Geldstückelung trägst du im Tagesabschluss ein. Monatsunterlagen (Monatsübersicht, Belegregister, Privatentnahmen, Brötchen- und Lieferanteninventur) folgen als Nächstes.</div>'}
+ var bm=UI.bm||(UI.bm=dk().slice(0,7));
+ h+='<h2>Monatsunterlagen</h2><div class="card"><div class="rowf"><input type="month" id="bu-m" data-bm="1" value="'+bm+'"></div><p class="mute sm">Das PDF enthält: Monatsübersicht, Belegregister, Privatentnahmen, Brötchen-Inventur und je Lieferant eine Monatsinventur (alle Standorte zusammen).</p><button class="btn" data-pdf="month">Monats-PDF erstellen und speichern / teilen</button></div>';
+ return h+'<div class="warnbox">Rechnerische Unterlagen aus den App-Daten. Kassenwerte und Geldstückelung trägst du im Tagesabschluss ein. Steuerliche Fragen bitte mit dem Steuerberater klären.</div>'}
 async function savePdf(b,name){var dl=null;try{dl=window.claude&&await claude.use("downloads")}catch(e){}if(!dl){var bl=new Blob([b],{type:"application/pdf"}),fl=null;try{fl=new File([bl],name,{type:"application/pdf"})}catch(e){}try{if(fl&&navigator.canShare&&navigator.canShare({files:[fl]})){await navigator.share({files:[fl],title:name});return}}catch(e){if(e&&e.name=="AbortError")return}var u=URL.createObjectURL(bl),a=document.createElement("a");a.href=u;a.download=name;document.body.appendChild(a);a.click();setTimeout(function(){URL.revokeObjectURL(u);a.remove()},4000);toast("PDF gespeichert");return}
  try{await dl.save({filename:name,data:new Blob([b],{type:"application/pdf"})});toast("PDF gespeichert")}catch(e){if(!e||e.code!="declined")toast("PDF konnte nicht gespeichert werden ("+(e&&e.code||"Fehler")+")")}}
 
